@@ -1,16 +1,19 @@
 package main
 
 import (
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"runtime/pprof"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/zoumo/jzon"
 )
 
-func main() {
-	s := string(
-		`
- {
+var (
+	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+	jsonStr    = `{
  	"users": [{
  		"id": -1,
  		"username": "system",
@@ -1256,16 +1259,40 @@ func main() {
  			}]
  		}]
  	}
- }
-`)
+ }`
+)
 
-	r := strings.NewReader(s)
-	p, _ := jzon.ParseReader(r)
-	j, err := p.Parse()
-	if err != nil {
-		spew.Dump(err)
-		return
+func main() {
+	flag.Parse()
+	if *cpuprofile != "" {
+		f, err := os.OpenFile(*cpuprofile, os.O_CREATE|os.O_RDWR, 0666)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
 	}
-	spew.Dump(j.Get("person", "gravatar", "avatars", 0, "url"))
-	spew.Dump(j.Get("person", "gravatar", "avatars", 0, "urls"))
+	r := strings.NewReader(jsonStr)
+	j, _ := jzon.FromReader(r)
+
+	for i := 0; i < 1000; i++ {
+		iter := j.Object()
+		if iter == nil {
+			fmt.Println("error")
+		}
+		for iter.Next() {
+			// spew.Dump(iter.Key)
+			// spew.Dump(iter.Value)
+		}
+	}
+
+	// jj, err := j.Get("topics", "topics", 1, "posters", 0, "description")
+	// if err != nil {
+	// 	spew.Dump(err)
+	// } else {
+	// 	spew.Dump(jj)
+	// }
+
+	// spew.Dump(j.Get("person", "gravatar", "avatars", 0, "url"))
+	// spew.Dump(j.Get("person", "gravatar", "avatars", 0, "urls"))
 }
