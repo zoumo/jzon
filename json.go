@@ -298,9 +298,9 @@ func (json *JSON) validLiteralValueEnd() int {
 
 func (json *JSON) validNumberEnd() int {
 
-	validEnd := func(data []byte) (int, *flag) {
+	validEnd := func(data []byte) (int, flag) {
 		n := len(data)
-		flag := new(flag)
+		var flag flag
 		if n == 0 {
 			return -1, flag
 		}
@@ -317,7 +317,7 @@ func (json *JSON) validNumberEnd() int {
 		i := 0
 		// first of all
 		if data[i] == '-' {
-			flag.add(flagIsNegative)
+			flag = add(flag, flagIsNegative)
 			i++
 		}
 		switch data[i] {
@@ -350,11 +350,11 @@ func (json *JSON) validNumberEnd() int {
 				i++
 			case 'e', 'E':
 				// https://en.wikipedia.org/wiki/Scientific_notation
-				if flag.contains(flagIsScientific) {
+				if contains(flag, flagIsScientific) {
 					// 123ee
 					return -i - 1, flag
 				}
-				flag.add(flagIsScientific)
+				flag = add(flag, flagIsScientific)
 
 				// +1
 				j, isdigit, more := lookOneMore(i)
@@ -380,12 +380,12 @@ func (json *JSON) validNumberEnd() int {
 				// 1.23e3
 				i += 2
 			case '.':
-				if flag.contains(flagIsFloat) || flag.contains(flagIsScientific) {
+				if contains(flag, flagIsFloat) || contains(flag, flagIsScientific) {
 					// 1. get more than one dot
 					// 2. or already get one e or E, only digit is allowed after e in scientific notation
 					return -i - 1, flag
 				}
-				flag.add(flagIsFloat)
+				flag = add(flag, flagIsFloat)
 				_, isdigit, more := lookOneMore(i)
 				if !more || !isdigit {
 					// 1223.
@@ -412,7 +412,7 @@ func (json *JSON) validNumberEnd() int {
 
 func (json *JSON) validArrayEnd() int {
 	validEnd := func() int {
-		flag := new(flag).add(flagNeedStart)
+		flag := flagNeedStart
 		for {
 			c, ok := json.nextToken()
 			if !ok {
@@ -421,40 +421,43 @@ func (json *JSON) validArrayEnd() int {
 			switch c {
 
 			case ',':
-				if !flag.contains(flagNeedComma) {
+				if !contains(flag, flagNeedComma) {
 					return -json.offset - 1
 				}
-				flag.remove(flagNeedComma, flagNeedEnd).add(flagNeedValue)
+				flag = remove(flag, flagNeedComma, flagNeedEnd)
+				flag = add(flag, flagNeedValue)
 				json.offset++
 			case ']':
-				if !flag.contains(flagNeedEnd) {
+				if !contains(flag, flagNeedEnd) {
 					return -json.offset - 1
 				}
 				json.offset++
 				return json.offset
 			case '[':
-				if flag.contains(flagNeedValue) {
+				if contains(flag, flagNeedValue) {
 					// [[1,2], [3,4]]
 					goto DefaultCase
 				}
 
-				if !flag.contains(flagNeedStart) {
+				if !contains(flag, flagNeedStart) {
 					return -json.offset - 1
 				}
-				flag.remove(flagNeedStart).add(flagNeedValue, flagNeedEnd)
+				flag = remove(flag, flagNeedStart)
+				flag = add(flag, flagNeedValue, flagNeedEnd)
 				json.offset++
 				break
 			DefaultCase: // label
 				fallthrough
 			default:
-				if !flag.contains(flagNeedValue) {
+				if !contains(flag, flagNeedValue) {
 					return -json.offset - 1
 				}
 				end, _ := json.validValueEnd()
 				if end == -1 {
 					return -1
 				}
-				flag.remove(flagNeedValue).add(flagNeedComma, flagNeedEnd)
+				flag = remove(flag, flagNeedValue)
+				flag = add(flag, flagNeedComma, flagNeedEnd)
 				json.offset = end
 			}
 		}
@@ -475,7 +478,7 @@ func (json *JSON) validArrayEnd() int {
 
 func (json *JSON) validObjectEnd() int {
 	validEnd := func() int {
-		flag := new(flag).add(flagNeedStart)
+		flag := flagNeedStart
 		for {
 			c, ok := json.nextToken()
 			if !ok {
@@ -483,23 +486,25 @@ func (json *JSON) validObjectEnd() int {
 			}
 			switch c {
 			case '{':
-				if !flag.contains(flagNeedStart) {
+				if !contains(flag, flagNeedStart) {
 					return -json.offset - 1
 				}
-				flag.remove(flagNeedStart).add(flagNeedKey, flagNeedEnd)
+				flag = remove(flag, flagNeedStart)
+				flag = add(flag, flagNeedKey, flagNeedEnd)
 				json.offset++
 			case '"':
-				if !flag.contains(flagNeedKey) {
+				if !contains(flag, flagNeedKey) {
 					return -json.offset - 1
 				}
 				end := json.validStringEnd()
 				if end == -1 {
 					return -1
 				}
-				flag.remove(flagNeedKey, flagNeedEnd).add(flagNeedColon) // clean
-				json.offset = end                                        // move to end
+				flag = remove(flag, flagNeedKey, flagNeedEnd)
+				flag = add(flag, flagNeedColon)
+				json.offset = end // move to end
 			case ':':
-				if !flag.contains(flagNeedColon) {
+				if !contains(flag, flagNeedColon) {
 					return -json.offset - 1
 				}
 				json.offset++
@@ -507,16 +512,18 @@ func (json *JSON) validObjectEnd() int {
 				if end == -1 {
 					return -1
 				}
-				flag.remove(flagNeedColon).add(flagNeedComma, flagNeedEnd) // clean flagColon
+				flag = remove(flag, flagNeedColon)
+				flag = add(flag, flagNeedComma, flagNeedEnd) // clean flagColon
 				json.offset = end
 			case ',':
-				if !flag.contains(flagNeedComma) {
+				if !contains(flag, flagNeedComma) {
 					return -json.offset - 1
 				}
-				flag.remove(flagNeedComma, flagNeedEnd).add(flagNeedKey)
+				flag = remove(flag, flagNeedComma, flagNeedEnd)
+				flag = add(flag, flagNeedKey)
 				json.offset++
 			case '}':
-				if !flag.contains(flagNeedEnd) {
+				if !contains(flag, flagNeedEnd) {
 					return -json.offset - 1
 				}
 				json.offset++
@@ -604,7 +611,7 @@ func (json *JSON) ObjectIndex(key string) *JSON {
 	json.mustBe(Object)
 	validIndex := func() (int, *JSON) {
 		match := false
-		flag := new(flag).add(flagNeedStart)
+		flag := flagNeedStart
 		for {
 			c, ok := json.nextToken()
 			if !ok {
@@ -612,13 +619,14 @@ func (json *JSON) ObjectIndex(key string) *JSON {
 			}
 			switch c {
 			case '{':
-				if !flag.contains(flagNeedStart) {
+				if !contains(flag, flagNeedStart) {
 					return -json.offset - 1, nil
 				}
-				flag.remove(flagNeedStart).add(flagNeedKey, flagNeedEnd)
+				flag = remove(flag, flagNeedStart)
+				flag = add(flag, flagNeedKey, flagNeedEnd)
 				json.offset++
 			case '"':
-				if !flag.contains(flagNeedKey) {
+				if !contains(flag, flagNeedKey) {
 					return -json.offset - 1, nil
 				}
 				end := json.validStringEnd()
@@ -631,10 +639,11 @@ func (json *JSON) ObjectIndex(key string) *JSON {
 					match = false
 				}
 
-				flag.remove(flagNeedKey, flagNeedEnd).add(flagNeedColon) // clean
-				json.offset = end                                        // move to end
+				flag = remove(flag, flagNeedKey, flagNeedEnd)
+				flag = add(flag, flagNeedColon)
+				json.offset = end // move to end
 			case ':':
-				if !flag.contains(flagNeedColon) {
+				if !contains(flag, flagNeedColon) {
 					return -json.offset - 1, nil
 				}
 				json.offset++
@@ -655,16 +664,18 @@ func (json *JSON) ObjectIndex(key string) *JSON {
 					return json.offset, json
 				}
 
-				flag.remove(flagNeedColon).add(flagNeedComma, flagNeedEnd) // clean flagColon
+				flag = remove(flag, flagNeedColon)
+				flag = add(flag, flagNeedComma, flagNeedEnd)
 				json.offset = end
 			case ',':
-				if !flag.contains(flagNeedComma) {
+				if !contains(flag, flagNeedComma) {
 					return -json.offset - 1, nil
 				}
-				flag.remove(flagNeedComma, flagNeedEnd).add(flagNeedKey)
+				flag = remove(flag, flagNeedComma, flagNeedEnd)
+				flag = add(flag, flagNeedKey)
 				json.offset++
 			case '}':
-				if !flag.contains(flagNeedEnd) {
+				if !contains(flag, flagNeedEnd) {
 					return -json.offset - 1, nil
 				}
 				json.offset++
@@ -693,7 +704,7 @@ func (json *JSON) ObjectIndex(key string) *JSON {
 func (json *JSON) Index(index int) *JSON {
 	json.mustBe(Array)
 	validIndex := func() (int, *JSON) {
-		flag := new(flag).add(flagNeedStart)
+		flag := flagNeedStart
 		i := 0
 		for {
 			c, ok := json.nextToken()
@@ -703,32 +714,34 @@ func (json *JSON) Index(index int) *JSON {
 			switch c {
 
 			case ',':
-				if !flag.contains(flagNeedComma) {
+				if !contains(flag, flagNeedComma) {
 					return -json.offset - 1, nil
 				}
-				flag.remove(flagNeedComma, flagNeedEnd).add(flagNeedValue)
+				flag = remove(flag, flagNeedComma, flagNeedEnd)
+				flag = add(flag, flagNeedValue)
 				json.offset++
 			case ']':
-				if !flag.contains(flagNeedEnd) {
+				if !contains(flag, flagNeedEnd) {
 					return -json.offset - 1, nil
 				}
 				json.offset++
 				return json.offset, nil
 			case '[':
-				if flag.contains(flagNeedValue) {
+				if contains(flag, flagNeedValue) {
 					goto DefaultCase
 				}
 
-				if !flag.contains(flagNeedStart) {
+				if !contains(flag, flagNeedStart) {
 					return -json.offset - 1, nil
 				}
-				flag.remove(flagNeedStart).add(flagNeedValue, flagNeedEnd)
+				flag = remove(flag, flagNeedStart)
+				flag = add(flag, flagNeedValue, flagNeedEnd)
 				json.offset++
 				break
 			DefaultCase: // label
 				fallthrough
 			default:
-				if !flag.contains(flagNeedValue) {
+				if !contains(flag, flagNeedValue) {
 					return -json.offset - 1, nil
 				}
 				var end int
@@ -748,7 +761,8 @@ func (json *JSON) Index(index int) *JSON {
 					return json.offset, json
 				}
 				i++
-				flag.remove(flagNeedValue).add(flagNeedComma, flagNeedEnd)
+				flag = remove(flag, flagNeedValue)
+				flag = add(flag, flagNeedComma, flagNeedEnd)
 				json.offset = end
 			}
 		}

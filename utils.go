@@ -8,26 +8,26 @@ func isDigit(c byte) bool {
 	return false
 }
 
-type stack []*JSON
+// type stack []*JSON
 
-func (s *stack) Push(j ...*JSON) {
-	*s = append(*s, j...)
-}
+// func (s *stack) Push(j ...*JSON) {
+// 	*s = append(*s, j...)
+// }
 
-func (s *stack) Pop() *JSON {
+// func (s *stack) Pop() *JSON {
 
-	if len(*s)-1 < 0 {
-		return nil
-	}
+// 	if len(*s)-1 < 0 {
+// 		return nil
+// 	}
 
-	j := (*s)[len(*s)-1]
-	*s = (*s)[:len(*s)-1]
-	return j
-}
+// 	j := (*s)[len(*s)-1]
+// 	*s = (*s)[:len(*s)-1]
+// 	return j
+// }
 
-func (s *stack) Peek() *JSON {
-	if len(*s)-1 < 0 {
-		return nil
-	}
-	return (*s)[len(*s)-1]
-}
+// func (s *stack) Peek() *JSON {
+// 	if len(*s)-1 < 0 {
+// 		return nil
+// 	}
+// 	return (*s)[len(*s)-1]
+// }
