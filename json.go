@@ -5,17 +5,26 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"runtime"
 )
 
+// Kind defines the type of json
 type Kind uint
 
 const (
+	// Invalid is an invalid type of json
 	Invalid Kind = iota
+	// Object is an json object
 	Object
+	// Array is an json array
 	Array
+	// Number is an json number
 	Number
+	// String is an json string
 	String
+	// Bool is an json bool
 	Bool
+	// Null is an json null
 	Null
 )
 
@@ -61,6 +70,7 @@ var (
 	nullBytes  = []byte("null")
 )
 
+// JSON is the basic struct representation
 type JSON struct {
 	data   []byte
 	offset int
@@ -69,6 +79,12 @@ type JSON struct {
 	err    error
 }
 
+// FromString returns an JSON from string
+func FromString(data string) *JSON {
+	return FromBytes([]byte(data))
+}
+
+// FromBytes returns a JSON from byte slice
 func FromBytes(data []byte) *JSON {
 	json := &JSON{
 		data:   data,
@@ -79,6 +95,7 @@ func FromBytes(data []byte) *JSON {
 	return json
 }
 
+// FromReader reads bytes from reader, then build JSON from it
 func FromReader(r io.Reader) (*JSON, error) {
 	buf, err := ioutil.ReadAll(r)
 	if err != nil {
@@ -93,11 +110,12 @@ func FromReader(r io.Reader) (*JSON, error) {
 	return json, nil
 }
 
-func (json *JSON) Reuse(data []byte) *JSON {
-	json.data = data
+// Reset resets json to be reused
+func (json *JSON) Reset() *JSON {
 	json.offset = 0
 	json.head = 0
-	json.tail = len(data)
+	json.tail = len(json.data)
+	json.err = nil
 	json.nextToken()
 	return json
 }
@@ -120,6 +138,7 @@ func (json *JSON) nextToken() (byte, bool) {
 	return 0, false
 }
 
+// Predict predicts the type of json according to the next token
 func (json *JSON) Predict() Kind {
 	c, ok := json.nextToken()
 	if !ok {
@@ -143,6 +162,8 @@ func (json *JSON) Predict() Kind {
 	}
 }
 
+// unsafeValueEnd returns the end of json value,
+// it is unsafe because it doesn't check syntax strictly
 func (json *JSON) unsafeValueEnd() (int, Kind) {
 	switch kind := json.Predict(); kind {
 	case Object:
@@ -156,11 +177,13 @@ func (json *JSON) unsafeValueEnd() (int, Kind) {
 	case Bool, Null:
 		return json.validLiteralValueEnd(), kind
 	default:
-		json.err = SchemaError{Invalid, json.offset, json.data}
+		json.err = SyntaxError{Invalid, json.offset, json.data}
 		return -1, Invalid
 	}
 }
 
+// validValueEnd return the end of json value,
+// it is safe because it check syntax strictly
 func (json *JSON) validValueEnd() (int, Kind) {
 	switch kind := json.Predict(); kind {
 	case Object:
@@ -174,13 +197,12 @@ func (json *JSON) validValueEnd() (int, Kind) {
 	case Bool, Null:
 		return json.validLiteralValueEnd(), kind
 	default:
-		json.err = SchemaError{Invalid, json.offset, json.data}
+		json.err = SyntaxError{Invalid, json.offset, json.data}
 		return -1, Invalid
 	}
 }
 
 func (json *JSON) validStringEnd() int {
-
 	validHexDigit := func(data []byte) bool {
 		if len(data) < 4 {
 			return false
@@ -193,7 +215,6 @@ func (json *JSON) validStringEnd() int {
 		}
 		return false
 	}
-
 	validEnd := func(data []byte) int {
 		// https://tools.ietf.org/html/rfc7159#section-7
 		n := len(data)
@@ -233,17 +254,11 @@ func (json *JSON) validStringEnd() int {
 		// can not find string end
 		return -n - 1
 	}
-
-	// if json.data[json.offset] != '"' {
-	// 	return -1
-	// }
-
 	end := validEnd(json.data[json.offset+1:])
 	if end < 0 {
-		json.err = SchemaError{String, json.offset + 1 - (end + 1), json.data}
+		json.err = SyntaxError{String, json.offset + 1 - (end + 1), json.data}
 		return -1
 	}
-
 	return json.offset + 1 + end
 }
 
@@ -291,13 +306,13 @@ func (json *JSON) validLiteralValueEnd() int {
 	default:
 		kind = Invalid
 	}
-	json.err = SchemaError{kind, json.offset, json.data}
+
+	json.err = SyntaxError{kind, json.offset, json.data}
 
 	return -1
 }
 
 func (json *JSON) validNumberEnd() int {
-
 	validEnd := func(data []byte) (int, flag) {
 		n := len(data)
 		var flag flag
@@ -404,9 +419,10 @@ func (json *JSON) validNumberEnd() int {
 	end, _ := validEnd(json.data[json.offset:])
 
 	if end < 0 {
-		json.err = SchemaError{Number, json.offset - end, json.data}
+		json.err = SyntaxError{Number, json.offset - end, json.data}
 		return -1
 	}
+
 	return json.offset + end
 }
 
@@ -467,7 +483,7 @@ func (json *JSON) validArrayEnd() int {
 	end := validEnd()
 	if end < 0 {
 		if json.err == nil {
-			json.err = SchemaError{Array, -(end + 1), json.data}
+			json.err = SyntaxError{Array, -(end + 1), json.data}
 		}
 		end = -1
 	}
@@ -536,7 +552,7 @@ func (json *JSON) validObjectEnd() int {
 	end := validEnd()
 	if end < 0 {
 		if json.err == nil {
-			json.err = SchemaError{Object, -(end + 1), json.data}
+			json.err = SyntaxError{Object, -(end + 1), json.data}
 		}
 		end = -1
 	}
@@ -544,6 +560,8 @@ func (json *JSON) validObjectEnd() int {
 	return end
 }
 
+// unsafeBlockEnd finds end of the data structure, array or object.
+// it is unsafe bucause it only check the nested symbol pair
 func (json *JSON) unsafeBlockEnd(left, right byte) int {
 	level := 0
 	now := json.offset
@@ -584,54 +602,34 @@ func (json *JSON) unsafeObjectEnd() int {
 	return json.unsafeBlockEnd('{', '}')
 }
 
-type SchemaError struct {
-	kind   Kind
-	offset int
-	data   []byte
-}
-
-func (e SchemaError) Error() string {
-	start := e.offset - 5
-	if start < 0 {
-		start = 0
-	}
-	end := e.offset + 5
-	if end > len(e.data) {
-		end = len(e.data)
-	}
-
-	return fmt.Sprintf("Json schema error when parsing kind(%s), context near: |%s|", e.kind, string(e.data[start:end]))
-}
-
-func (json *JSON) Err() error {
-	return json.err
-}
-
-func (json *JSON) ObjectIndex(key string) *JSON {
+// ObjectIndex finds value index i by object key, then move offset to i,
+// if not found, return error
+// if occur syntax error, return error
+func (json *JSON) ObjectIndex(key string) error {
 	json.mustBe(Object)
-	validIndex := func() (int, *JSON) {
+	validIndex := func() int {
 		match := false
 		flag := flagNeedStart
 		for {
 			c, ok := json.nextToken()
 			if !ok {
-				return -json.offset - 1, nil
+				return -json.offset - 1
 			}
 			switch c {
 			case '{':
 				if !contains(flag, flagNeedStart) {
-					return -json.offset - 1, nil
+					return -json.offset - 1
 				}
 				flag = remove(flag, flagNeedStart)
 				flag = add(flag, flagNeedKey, flagNeedEnd)
 				json.offset++
 			case '"':
 				if !contains(flag, flagNeedKey) {
-					return -json.offset - 1, nil
+					return -json.offset - 1
 				}
 				end := json.validStringEnd()
 				if end == -1 {
-					return -1, nil
+					return -1
 				}
 				if k := string(json.data[json.offset+1 : end-1]); k == key {
 					match = true
@@ -644,7 +642,7 @@ func (json *JSON) ObjectIndex(key string) *JSON {
 				json.offset = end // move to end
 			case ':':
 				if !contains(flag, flagNeedColon) {
-					return -json.offset - 1, nil
+					return -json.offset - 1
 				}
 				json.offset++
 				var end int
@@ -655,13 +653,13 @@ func (json *JSON) ObjectIndex(key string) *JSON {
 				}
 
 				if end == -1 {
-					return -1, nil
+					return -1
 				}
 
 				if match {
 					json.head = json.offset
 					json.tail = end
-					return json.offset, json
+					return json.offset
 				}
 
 				flag = remove(flag, flagNeedColon)
@@ -669,70 +667,66 @@ func (json *JSON) ObjectIndex(key string) *JSON {
 				json.offset = end
 			case ',':
 				if !contains(flag, flagNeedComma) {
-					return -json.offset - 1, nil
+					return -json.offset - 1
 				}
 				flag = remove(flag, flagNeedComma, flagNeedEnd)
 				flag = add(flag, flagNeedKey)
 				json.offset++
 			case '}':
 				if !contains(flag, flagNeedEnd) {
-					return -json.offset - 1, nil
+					return -json.offset - 1
 				}
 				json.offset++
-				return json.offset, nil
+				json.err = fmt.Errorf("object: key[%s] not found", key)
+				return -json.offset
 			}
 
 		}
 	}
-	now := json.offset
-	defer func() {
-		json.offset = now
-	}()
 
-	end, j := validIndex()
-	if end < 0 {
-		if json.err == nil {
-			json.err = SchemaError{Object, -(end + 1), json.data}
-		}
-	} else if j == nil {
-		json.err = fmt.Errorf("object has no such key %s", key)
+	end := validIndex()
+	if end < 0 && json.err == nil {
+		json.err = SyntaxError{Object, -(end + 1), json.data}
 	}
 
-	return j
+	return json.err
 }
 
-func (json *JSON) Index(index int) *JSON {
+// Index finds value index i by array index, then move offset to i,
+// if out of array range, return error
+// if occur syntax error, return error
+func (json *JSON) Index(index int) error {
 	json.mustBe(Array)
-	validIndex := func() (int, *JSON) {
+	validIndex := func() int {
 		flag := flagNeedStart
 		i := 0
 		for {
 			c, ok := json.nextToken()
 			if !ok {
-				return -json.offset - 1, nil
+				return -json.offset - 1
 			}
 			switch c {
-
 			case ',':
 				if !contains(flag, flagNeedComma) {
-					return -json.offset - 1, nil
+					return -json.offset - 1
 				}
 				flag = remove(flag, flagNeedComma, flagNeedEnd)
 				flag = add(flag, flagNeedValue)
 				json.offset++
 			case ']':
 				if !contains(flag, flagNeedEnd) {
-					return -json.offset - 1, nil
+					return -json.offset - 1
 				}
 				json.offset++
-				return json.offset, nil
+				json.err = fmt.Errorf("array: index[%d] out of range", index)
+				return json.offset
 			case '[':
 				if contains(flag, flagNeedValue) {
+					// [[1,2],[3,4]]
 					goto DefaultCase
 				}
-
 				if !contains(flag, flagNeedStart) {
-					return -json.offset - 1, nil
+					return -json.offset - 1
 				}
 				flag = remove(flag, flagNeedStart)
 				flag = add(flag, flagNeedValue, flagNeedEnd)
@@ -742,7 +736,7 @@ func (json *JSON) Index(index int) *JSON {
 				fallthrough
 			default:
 				if !contains(flag, flagNeedValue) {
-					return -json.offset - 1, nil
+					return -json.offset - 1
 				}
 				var end int
 				if i == index {
@@ -752,66 +746,65 @@ func (json *JSON) Index(index int) *JSON {
 				}
 
 				if end == -1 {
-					return -1, nil
+					return -1
 				}
 
 				if i == index {
 					json.head = json.offset
 					json.tail = end
-					return json.offset, json
+					return json.offset
 				}
-				i++
+
 				flag = remove(flag, flagNeedValue)
 				flag = add(flag, flagNeedComma, flagNeedEnd)
 				json.offset = end
+				i++
 			}
 		}
 	}
 
-	now := json.offset
-	defer func() {
-		json.offset = now
-	}()
-
-	end, j := validIndex()
-	if end < 0 {
-		if json.err == nil {
-			json.err = SchemaError{Object, -(end + 1), json.data}
-		}
-	} else if j == nil {
-		json.err = fmt.Errorf("array out of range")
+	end := validIndex()
+	if end < 0 && json.err == nil {
+		json.err = SyntaxError{Object, -(end + 1), json.data}
 	}
 
-	return j
+	return json.err
 }
 
-func (json *JSON) Get(keys ...interface{}) (*JSON, error) {
+// Path moves offset to given keys path
+func (json *JSON) Path(keys ...interface{}) error {
 	if len(keys) == 0 {
-		return json, nil
+		return nil
 	}
-	kind := json.Predict()
-	switch key := keys[0].(type) {
-	case string:
-		if kind != Object {
-			return nil, fmt.Errorf("can not get %s from json type %s", key, kind)
+
+	for _, key := range keys {
+		kind := json.Predict()
+
+		switch k := key.(type) {
+		case string:
+			if kind != Object {
+				json.err = fmt.Errorf("can not get key[%s] from json type %s", key, kind)
+				return json.err
+			}
+			err := json.ObjectIndex(k)
+			if err != nil {
+				return err
+			}
+		case int:
+			if kind != Array {
+				json.err = fmt.Errorf("can not get index[%d] from json type %s", key, kind)
+				return json.err
+			}
+			err := json.Index(k)
+			if err != nil {
+				return err
+			}
+		default:
+			json.err = fmt.Errorf("%v is not string or int", keys[0])
+			return json.err
 		}
-		jj := json.ObjectIndex(key)
-		if jj == nil {
-			return nil, json.Err()
-		}
-		return jj.Get(keys[1:]...)
-	case int:
-		if kind != Array {
-			return nil, fmt.Errorf("can not get %d from json type %s", key, kind)
-		}
-		jj := json.Index(key)
-		if jj == nil {
-			return nil, json.Err()
-		}
-		return jj.Get(keys[1:]...)
-	default:
-		return nil, fmt.Errorf("%v is not string or int", keys[0])
 	}
+	return nil
 }
 
 func (json *JSON) String() string {
@@ -819,4 +812,29 @@ func (json *JSON) String() string {
 		return string(json.data)
 	}
 	return string(json.data[json.head:json.tail])
+}
+
+// Err returns any error when parsing json syntax
+func (json *JSON) Err() error {
+	return json.err
+}
+
+// mustBe assert the json must be expected type,
+// it will panic otherwise.
+func (json *JSON) mustBe(expected Kind) {
+	kind := json.Predict()
+	if kind != expected {
+		panic(&KindError{methodName(), kind})
+	}
+}
+
+// methodName returns the name of the calling method,
+// assumed to be two stack frames above.
+func methodName() string {
+	pc, _, _, _ := runtime.Caller(2)
+	f := runtime.FuncForPC(pc)
+	if f == nil {
+		return "unknown method"
+	}
+	return f.Name()
 }

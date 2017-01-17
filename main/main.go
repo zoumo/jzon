@@ -1276,7 +1276,7 @@ func main() {
 	j, _ := jzon.FromReader(r)
 
 	for i := 0; i < 1000; i++ {
-		iter := j.Object()
+		iter, _ := j.Object()
 		if iter == nil {
 			fmt.Println("error")
 		}
@@ -1286,9 +1286,9 @@ func main() {
 		}
 	}
 
-	// jj, err := j.Get("topics", "topics", 1, "posters", 0, "description")
-	// if err != nil {
-	// 	spew.Dump(err)
+	// jj := j.Get("topics", "topics", 1, "posters", 0, "description")
+	// if jj == nil {
+	// 	spew.Dump(jj.Err())
 	// } else {
 	// 	spew.Dump(jj)
 	// }

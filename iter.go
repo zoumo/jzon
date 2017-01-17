@@ -1,91 +1,27 @@
 package jzon
 
-import "runtime"
-
-// A ValueError occurs when a Value method is invoked on
-// a Value that does not support it. Such cases are documented
-// in the description of each method.
-type ValueError struct {
-	Method string
-	Kind   Kind
-}
-
-func (e *ValueError) Error() string {
-	if e.Kind == 0 {
-		return "jzon: call of " + e.Method + " on zero Value"
-	}
-	return "jzon: call of " + e.Method + " on " + e.Kind.String() + " Value"
-}
-
-// methodName returns the name of the calling method,
-// assumed to be two stack frames above.
-func methodName() string {
-	pc, _, _, _ := runtime.Caller(2)
-	f := runtime.FuncForPC(pc)
-	if f == nil {
-		return "unknown method"
-	}
-	return f.Name()
-}
-
+// ObjectIter is an iterable on object type json
 type ObjectIter struct {
 	*JSON
-	Key   string
-	Value *JSON
+	key string
+	len int
 }
 
-type ArrayIter struct {
-	*JSON
-	Index int
-	Value *JSON
-}
-
-func (json *JSON) mustBe(expected Kind) {
-	kind := json.Predict()
-	if kind != expected {
-		panic(&ValueError{methodName(), kind})
-	}
-}
-
-func (json *JSON) Object() *ObjectIter {
-	json.mustBe(Object)
-	end := json.validObjectEnd()
-	if end == -1 {
-		return nil
-	}
-	return &ObjectIter{
-		&JSON{
-			data:   json.data[json.offset:end],
-			offset: 0,
-		},
-		"",
-		nil,
-	}
-}
-
-func (json *JSON) Array() *ArrayIter {
-	json.mustBe(Array)
-	end := json.validArrayEnd()
-	if end == -1 {
-		return nil
-	}
-	return &ArrayIter{
-		&JSON{
-			data:   json.data[json.offset+1 : end-1],
-			offset: 0,
-		},
-		-1,
-		nil,
-	}
-}
-
+// Reset resets the ObjectIter then you can use it again
 func (iter *ObjectIter) Reset() {
 	iter.offset = 0
+	iter.key = ""
 }
 
+// Next finds the next key and value pair of object.
+// If not return false
+// example:
+// for iter.Next() {
+// 	  key := iter.Key()
+// 	  value := iter.Value()
+// 	  // do something
+// }
 func (iter *ObjectIter) Next() bool {
-	// var key string
-	// var value *JSON
 Loop:
 	for {
 		c, ok := iter.nextToken()
@@ -97,14 +33,13 @@ Loop:
 			iter.offset++
 		case '"':
 			end := iter.validStringEnd()
-			iter.Key = string(iter.data[iter.offset+1 : end-1])
+			iter.key = string(iter.data[iter.offset+1 : end-1])
 			iter.offset = end
 		case ':':
 			iter.offset++
 			end, _ := iter.unsafeValueEnd()
 			iter.head = iter.offset
 			iter.tail = end
-			iter.Value = iter.JSON
 			iter.offset = end
 			break Loop
 		case ',':
@@ -112,13 +47,58 @@ Loop:
 		case '}':
 			iter.offset++
 			return false
-			// break Loop
 		}
 
 	}
 	return true
 }
 
+// Len returns the length of object using Next() api
+// and cache it
+func (iter *ObjectIter) Len() int {
+	if iter.len > 0 {
+		return iter.len
+	}
+	for iter.Next() {
+		iter.len++
+	}
+	iter.Reset()
+	return iter.len
+}
+
+// Key returns current key
+func (iter *ObjectIter) Key() string {
+	return iter.key
+}
+
+// Value returns current value
+func (iter *ObjectIter) Value() *JSON {
+	return iter.JSON
+}
+
+// ----------------------------------------------------------------------------
+
+// ArrayIter is an iterable on array type json
+type ArrayIter struct {
+	*JSON
+	index int
+	len   int
+}
+
+// Reset resets the ArrayIter then you can use it again
+func (iter *ArrayIter) Reset() {
+	iter.offset = 0
+	iter.index = -1
+}
+
+// Next finds the next value of array.
+// If not return false
+// example:
+// for iter.Next() {
+// 	  index := iter.Index()
+// 	  value := iter.Value()
+// 	  // do something
+// }
 func (iter *ArrayIter) Next() bool {
 Loop:
 	for {
@@ -131,10 +111,10 @@ Loop:
 			iter.offset++
 		default:
 			end, _ := iter.unsafeValueEnd()
-			iter.Index++
+			iter.index++
 			iter.head = iter.offset
 			iter.tail = end
-			iter.Value = iter.JSON
+			// iter.value = iter.JSON
 			iter.offset = end
 
 			break Loop
@@ -142,4 +122,91 @@ Loop:
 
 	}
 	return true
+}
+
+// Len returns the length of object using Next() api
+// and cache it
+func (iter *ArrayIter) Len() int {
+	if iter.len > 0 {
+		return iter.len
+	}
+	for iter.Next() {
+		iter.len++
+	}
+	iter.Reset()
+	return iter.len
+}
+
+// Index returns current index
+func (iter *ArrayIter) Index() int {
+	return iter.index
+}
+
+// Value returns current value
+func (iter *ArrayIter) Value() *JSON {
+	return iter.JSON
+}
+
+// ----------------------------------------------------------------------------
+
+// Object returns an ObjectIter which is an iterable on the object after valified.
+func (json *JSON) Object() (*ObjectIter, error) {
+	json.mustBe(Object)
+	// it is very important to valify object before using it
+	end := json.validObjectEnd()
+	if end == -1 {
+		return nil, json.err
+	}
+	return &ObjectIter{
+		JSON: &JSON{
+			data: json.data[json.offset:end],
+		},
+	}, nil
+}
+
+// UnsafeObject returns an ObjectIter which is an iterable
+// on the object without valified. It is faster than Object() function,
+// but it is unsafe, you should make sure the object is valid by your self.
+func (json *JSON) UnsafeObject() (*ObjectIter, error) {
+	json.mustBe(Object)
+	end := json.unsafeObjectEnd()
+	if end == -1 {
+		return nil, json.err
+	}
+	return &ObjectIter{
+		JSON: &JSON{
+			data: json.data[json.offset:end],
+		},
+	}, nil
+}
+
+// Array returns an ArrayIter which is an iterable on the array after valified.
+func (json *JSON) Array() (*ArrayIter, error) {
+	json.mustBe(Array)
+	end := json.validArrayEnd()
+	if end == -1 {
+		return nil, json.err
+	}
+	return &ArrayIter{
+		JSON: &JSON{
+			data: json.data[json.offset+1 : end-1],
+		},
+		index: -1,
+	}, nil
+}
+
+// UnsafeArray returns an ArrayIter which is an iterable
+// on the array without valified.It is faster than Array() function,
+// but it is unsafe, you should make sure the array is valid by your self.
+func (json *JSON) UnsafeArray() (*ArrayIter, error) {
+	json.mustBe(Array)
+	end := json.unsafeArrayEnd()
+	if end == -1 {
+		return nil, json.err
+	}
+	return &ArrayIter{
+		JSON: &JSON{
+			data: json.data[json.offset+1 : end-1],
+		},
+	}, nil
 }
