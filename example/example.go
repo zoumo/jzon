@@ -1,19 +1,13 @@
 package main
 
 import (
-	"flag"
 	"fmt"
-	"log"
-	"os"
-	"runtime/pprof"
-	"strings"
 
 	"github.com/zoumo/jzon"
 )
 
 var (
-	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-	jsonStr    = `{
+	jsonStr = `{
  	"users": [{
  		"id": -1,
  		"username": "system",
@@ -1262,37 +1256,47 @@ var (
  }`
 )
 
+func Example() {
+	j := jzon.FromString(jsonStr)
+
+	err := j.Path("topics", "topics", 1)
+	if err != nil {
+		fmt.Println(err)
+	}
+	iter, err := j.Object()
+	if err != nil {
+		fmt.Println(err)
+	}
+	for iter.Next() {
+		fmt.Printf("key: %s\tvalue: %s\n", iter.Key(), iter.Value())
+	}
+
+}
+
+func Example2() {
+	j := jzon.FromString(jsonStr)
+
+	err := j.Path("users")
+	if err != nil {
+		fmt.Println(err)
+	}
+	iter, err := j.Array()
+	if err != nil {
+		fmt.Println(err)
+	}
+	for iter.Next() {
+		v := iter.Value()
+		// spew.Dump(v)
+		i2, _ := v.Object()
+		for i2.Next() {
+			fmt.Printf("key: %s\tvalue: %s\n", i2.Key(), i2.Value())
+		}
+	}
+}
+
 func main() {
-	flag.Parse()
-	if *cpuprofile != "" {
-		f, err := os.OpenFile(*cpuprofile, os.O_CREATE|os.O_RDWR, 0666)
-		if err != nil {
-			log.Fatal(err)
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-	}
-	r := strings.NewReader(jsonStr)
-	j, _ := jzon.FromReader(r)
 
-	for i := 0; i < 1000; i++ {
-		iter, _ := j.Object()
-		if iter == nil {
-			fmt.Println("error")
-		}
-		for iter.Next() {
-			// spew.Dump(iter.Key)
-			// spew.Dump(iter.Value)
-		}
-	}
+	Example()
+	Example2()
 
-	// jj := j.Get("topics", "topics", 1, "posters", 0, "description")
-	// if jj == nil {
-	// 	spew.Dump(jj.Err())
-	// } else {
-	// 	spew.Dump(jj)
-	// }
-
-	// spew.Dump(j.Get("person", "gravatar", "avatars", 0, "url"))
-	// spew.Dump(j.Get("person", "gravatar", "avatars", 0, "urls"))
 }

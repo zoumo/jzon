@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"runtime"
+	"strconv"
 )
 
 // Kind defines the type of json
@@ -164,6 +165,7 @@ func (json *JSON) Predict() Kind {
 
 // unsafeValueEnd returns the end of json value,
 // it is unsafe because it doesn't check syntax strictly
+// it is efficient if you don't care what the value is
 func (json *JSON) unsafeValueEnd() (int, Kind) {
 	switch kind := json.Predict(); kind {
 	case Object:
@@ -171,7 +173,7 @@ func (json *JSON) unsafeValueEnd() (int, Kind) {
 	case Array:
 		return json.unsafeArrayEnd(), kind
 	case Number:
-		return json.validNumberEnd(), kind
+		return json.unsafeNumberEnd(), kind
 	case String:
 		return json.validStringEnd(), kind
 	case Bool, Null:
@@ -590,7 +592,13 @@ func (json *JSON) unsafeBlockEnd(left, right byte) int {
 		}
 
 	}
-
+	var kind Kind
+	if left == '{' {
+		kind = Object
+	} else if left == '[' {
+		kind = Array
+	}
+	json.err = SyntaxError{kind, json.offset, json.data}
 	return -1
 }
 
@@ -600,6 +608,26 @@ func (json *JSON) unsafeArrayEnd() int {
 
 func (json *JSON) unsafeObjectEnd() int {
 	return json.unsafeBlockEnd('{', '}')
+}
+
+func (json *JSON) unsafeNumberEnd() int {
+	n := len(json.data)
+
+	i := json.offset
+
+	for ; i < n; i++ {
+		switch json.data[i] {
+		case ' ', '\n', '\r', '\t', ',', '}', ']':
+			// here is the valid end
+			return i
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '-', 'e', 'E', '.':
+			continue
+		default:
+			json.err = SyntaxError{Number, i, json.data}
+			return -1
+		}
+	}
+	return i
 }
 
 // ObjectIndex finds value index i by object key, then move offset to i,
@@ -805,6 +833,82 @@ func (json *JSON) Path(keys ...interface{}) error {
 		}
 	}
 	return nil
+}
+
+// ParseInt64 parses an int Number json value to int64
+func (json *JSON) ParseInt64() (int64, error) {
+	if json.tail <= 0 {
+		json.tail = len(json.data)
+	}
+
+	json.offset = json.head
+	kind := json.Predict()
+	if kind != Number {
+		return 0, fmt.Errorf("ParseInt64: Can not parse %s JSON to int", kind)
+	}
+
+	return strconv.ParseInt(string(json.data[json.head:json.tail]), 10, 64)
+}
+
+// ParseFloat parses an float Number json value to float64
+func (json *JSON) ParseFloat() (float64, error) {
+	if json.tail <= 0 {
+		json.tail = len(json.data)
+	}
+
+	json.offset = json.head
+	kind := json.Predict()
+	if kind != Number {
+		return 0, fmt.Errorf("ParseFloat: Can not parse %s JSON to float", kind)
+	}
+
+	return strconv.ParseFloat(string(json.data[json.head:json.tail]), 64)
+}
+
+// ParseString parses an String json value to float64
+func (json *JSON) ParseString() (string, error) {
+	if json.tail <= 0 {
+		json.tail = len(json.data)
+	}
+	json.offset = json.head
+	kind := json.Predict()
+	if kind != String {
+		return "", fmt.Errorf("ParseString: Can not parse %s JSON to string", kind)
+	}
+	return string(json.data[json.head+1 : json.tail-1]), nil
+}
+
+// ParseBoolean parses an Bool json value to bool
+func (json *JSON) ParseBoolean() (bool, error) {
+	if json.tail <= 0 {
+		json.tail = len(json.data)
+	}
+	json.offset = json.head
+	kind := json.Predict()
+	if kind != Bool {
+		return false, fmt.Errorf("ParseBoolean: Can not parse %s JSON to bool", kind)
+	}
+
+	s := json.data[json.head:json.tail]
+
+	if bytes.Equal(s, trueBytes) {
+		return true, nil
+	} else if bytes.Equal(s, falseBytes) {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("ParseBoolean: no valid boolean string")
+}
+
+// Kind returns current kind of json represented by json.data[head:tail]
+func (json *JSON) Kind() Kind {
+	now := json.offset
+	defer func() {
+		json.offset = now
+	}()
+	json.offset = json.head
+
+	return json.Predict()
 }
 
 func (json *JSON) String() string {

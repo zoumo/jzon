@@ -149,64 +149,80 @@ func (iter *ArrayIter) Value() *JSON {
 
 // ----------------------------------------------------------------------------
 
-// Object returns an ObjectIter which is an iterable on the object after valified.
-func (json *JSON) Object() (*ObjectIter, error) {
+func (json *JSON) objectIter(valify bool) (*ObjectIter, error) {
+	now := json.offset
+	defer func() {
+		json.offset = now
+	}()
+	json.offset = json.head
+
 	json.mustBe(Object)
-	// it is very important to valify object before using it
-	end := json.validObjectEnd()
-	if end == -1 {
-		return nil, json.err
+
+	if json.tail <= 0 {
+		if valify {
+			// it is very important to valify object before using it
+			json.tail = json.validObjectEnd()
+		} else {
+			json.tail = json.unsafeObjectEnd()
+		}
+		if json.tail == -1 {
+			return nil, json.err
+		}
 	}
+
 	return &ObjectIter{
 		JSON: &JSON{
-			data: json.data[json.offset:end],
+			data: json.data[json.head:json.tail],
 		},
 	}, nil
+}
+
+// Object returns an ObjectIter which is an iterable on the object after valified.
+func (json *JSON) Object() (*ObjectIter, error) {
+	return json.objectIter(true)
 }
 
 // UnsafeObject returns an ObjectIter which is an iterable
-// on the object without valified. It is faster than Object() function,
+// on the object without valified. It is 2.x faster than Object() function,
 // but it is unsafe, you should make sure the object is valid by your self.
 func (json *JSON) UnsafeObject() (*ObjectIter, error) {
-	json.mustBe(Object)
-	end := json.unsafeObjectEnd()
-	if end == -1 {
-		return nil, json.err
-	}
-	return &ObjectIter{
-		JSON: &JSON{
-			data: json.data[json.offset:end],
-		},
-	}, nil
+	return json.objectIter(false)
 }
 
-// Array returns an ArrayIter which is an iterable on the array after valified.
-func (json *JSON) Array() (*ArrayIter, error) {
+func (json *JSON) arrayIter(valify bool) (*ArrayIter, error) {
+	now := json.offset
+	defer func() {
+		json.offset = now
+	}()
+	json.offset = json.head
+
 	json.mustBe(Array)
-	end := json.validArrayEnd()
-	if end == -1 {
-		return nil, json.err
+	if json.tail <= 0 {
+		if valify {
+			json.tail = json.validArrayEnd()
+		} else {
+			json.tail = json.unsafeArrayEnd()
+		}
+		if json.tail == -1 {
+			return nil, json.err
+		}
 	}
 	return &ArrayIter{
 		JSON: &JSON{
-			data: json.data[json.offset+1 : end-1],
+			data: json.data[json.head+1 : json.tail-1],
 		},
 		index: -1,
 	}, nil
 }
 
+// Array returns an ArrayIter which is an iterable on the array after valified.
+func (json *JSON) Array() (*ArrayIter, error) {
+	return json.arrayIter(true)
+}
+
 // UnsafeArray returns an ArrayIter which is an iterable
-// on the array without valified.It is faster than Array() function,
+// on the array without valified. It is 2.x faster than Array() function,
 // but it is unsafe, you should make sure the array is valid by your self.
 func (json *JSON) UnsafeArray() (*ArrayIter, error) {
-	json.mustBe(Array)
-	end := json.unsafeArrayEnd()
-	if end == -1 {
-		return nil, json.err
-	}
-	return &ArrayIter{
-		JSON: &JSON{
-			data: json.data[json.offset+1 : end-1],
-		},
-	}, nil
+	return json.arrayIter(false)
 }
