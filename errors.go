@@ -2,7 +2,7 @@ package jzon
 
 import "fmt"
 
-// A SyntaxError occurs when parsing json syntax
+// A SyntaxError occurs when parsing JSON syntax
 type SyntaxError struct {
 	kind   Kind
 	offset int
@@ -19,7 +19,7 @@ func (e SyntaxError) Error() string {
 		end = len(e.data)
 	}
 
-	return fmt.Sprintf("Json syntax error when parsing kind(%s), context near: |%s|", e.kind, string(e.data[start:end]))
+	return fmt.Sprintf("JSON syntax error when parsing kind(%s), context near: |%s|", e.kind, string(e.data[start:end]))
 }
 
 // A KindError occurs when a JSON method is invoked on

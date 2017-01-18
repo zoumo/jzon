@@ -2,6 +2,7 @@ package jzon
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -9,27 +10,28 @@ import (
 	"strconv"
 )
 
-// Kind defines the type of json
+// Kind defines the type of JSON
 type Kind uint
 
 const (
-	// Invalid is an invalid type of json
+	// Invalid is an invalid type of JSON
 	Invalid Kind = iota
-	// Object is an json object
+	// Object is an JSON object
 	Object
-	// Array is an json array
+	// Array is an JSON array
 	Array
-	// Number is an json number
+	// Number is an JSON number
 	Number
-	// String is an json string
+	// String is an JSON string
 	String
-	// Bool is an json bool
+	// Bool is an JSON bool
 	Bool
-	// Null is an json null
+	// Null is an JSON null
 	Null
 )
 
 func (k Kind) String() string {
+	json.Unmarshal()
 	switch k {
 	case Invalid:
 		return "Invalid"
@@ -111,7 +113,7 @@ func FromReader(r io.Reader) (*JSON, error) {
 	return json, nil
 }
 
-// Reset resets json to be reused
+// Reset resets JSON to be reused
 func (json *JSON) Reset() *JSON {
 	json.offset = 0
 	json.head = 0
@@ -923,7 +925,7 @@ func (json *JSON) Err() error {
 	return json.err
 }
 
-// mustBe assert the json must be expected type,
+// mustBe assert the JSON must be expected type,
 // it will panic otherwise.
 func (json *JSON) mustBe(expected Kind) {
 	kind := json.Predict()

@@ -1,6 +1,6 @@
 package jzon
 
-// ObjectIter is an iterable on object type json
+// ObjectIter is an iterable on object type JSON
 type ObjectIter struct {
 	*JSON
 	key string
@@ -78,7 +78,7 @@ func (iter *ObjectIter) Value() *JSON {
 
 // ----------------------------------------------------------------------------
 
-// ArrayIter is an iterable on array type json
+// ArrayIter is an iterable on array type JSON
 type ArrayIter struct {
 	*JSON
 	index int
