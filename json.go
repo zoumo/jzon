@@ -2,7 +2,6 @@ package jzon
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -31,7 +30,6 @@ const (
 )
 
 func (k Kind) String() string {
-	json.Unmarshal()
 	switch k {
 	case Invalid:
 		return "Invalid"
