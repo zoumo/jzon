@@ -3,8 +3,9 @@ package jzon
 // ObjectIter is an iterable on object type JSON
 type ObjectIter struct {
 	*JSON
-	key string
-	len int
+	key       string
+	len       int
+	keysCache []string
 }
 
 // Reset resets the ObjectIter then you can use it again
@@ -74,6 +75,32 @@ func (iter *ObjectIter) Key() string {
 // Value returns current value
 func (iter *ObjectIter) Value() *JSON {
 	return iter.JSON
+}
+
+// Keys returns all keys and store in cache
+func (iter *ObjectIter) Keys() []string {
+	if iter.keysCache == nil {
+		iter.keysCache = make([]string, 0)
+	}
+	if len(iter.keysCache) == 0 {
+		iter.len = 0
+		for iter.Next() {
+			iter.keysCache = append(iter.keysCache, iter.key)
+			iter.len++
+		}
+		iter.Reset()
+	}
+	return iter.keysCache
+}
+
+// HasKey checks whether iter cantains the given key
+func (iter *ObjectIter) HasKey(k string) bool {
+	for _, key := range iter.Keys() {
+		if key == k {
+			return true
+		}
+	}
+	return false
 }
 
 // ----------------------------------------------------------------------------
