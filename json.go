@@ -2,11 +2,15 @@ package jzon
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"runtime"
 	"strconv"
+	"unicode"
+	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // Kind defines the type of JSON
@@ -121,6 +125,14 @@ func (json *JSON) Reset() *JSON {
 	return json
 }
 
+func (json *JSON) CheckValid() error {
+	end, _ := json.validValueEnd()
+	if end == -1 {
+		return json.err
+	}
+	return nil
+}
+
 // nextToken returns the byte read at index i, move offset to i
 // if a valid byte is found
 func (json *JSON) nextToken() (byte, bool) {
@@ -137,6 +149,16 @@ func (json *JSON) nextToken() (byte, bool) {
 	}
 	json.offset = len(json.data)
 	return 0, false
+}
+
+// readNextToken is like nextToken
+func (json *JSON) readNextToken() (byte, bool) {
+
+	c, ok := json.nextToken()
+	if ok {
+		json.offset++
+	}
+	return c, ok
 }
 
 // Predict predicts the type of json according to the next token
@@ -205,25 +227,14 @@ func (json *JSON) validValueEnd() (int, Kind) {
 }
 
 func (json *JSON) validStringEnd() int {
-	validHexDigit := func(data []byte) bool {
-		if len(data) < 4 {
-			return false
-		}
-		for i := 0; i < 4; i++ {
-			c := data[i]
-			if ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F') {
-				return true
-			}
-		}
-		return false
-	}
+
 	validEnd := func(data []byte) int {
 		// https://tools.ietf.org/html/rfc7159#section-7
 		n := len(data)
 		// escaped := false
 		for i := 0; i < n; {
-			switch data[i] {
-			case '\\':
+			switch c := data[i]; {
+			case c == '\\':
 				// look one more byte
 				if i+1 >= n {
 					return -i - 1
@@ -233,7 +244,7 @@ func (json *JSON) validStringEnd() int {
 				case 'u':
 					// maybe \uXXXX
 					// need 4 hexdemical digit
-					if !validHexDigit(data[i+2:]) {
+					if getu4(data[i:]) == -1 {
 						// error string format
 						return -i - 1
 					}
@@ -246,9 +257,12 @@ func (json *JSON) validStringEnd() int {
 					return -i - 1
 				}
 
-			case '"':
+			case c == '"':
 				// match end
 				return i + 1
+			case c < ' ':
+				// control characters are invalid
+				return -i - 1
 			default:
 				i++
 			}
@@ -659,7 +673,8 @@ func (json *JSON) ObjectIndex(key string) error {
 				if end == -1 {
 					return -1
 				}
-				if k := string(json.data[json.offset+1 : end-1]); k == key {
+				s, _ := unquote(json.data[json.offset:end])
+				if k := string(s); k == key {
 					match = true
 				} else {
 					match = false
@@ -875,7 +890,11 @@ func (json *JSON) ParseString() (string, error) {
 	if kind != String {
 		return "", fmt.Errorf("ParseString: Can not parse %s JSON to string", kind)
 	}
-	return string(json.data[json.head+1 : json.tail-1]), nil
+	s, ok := unquote(json.data[json.head:json.tail])
+	if !ok {
+		return "", errors.New("ParseString: unquote string error")
+	}
+	return s, nil
 }
 
 // ParseBoolean parses an Bool json value to bool
@@ -949,4 +968,139 @@ func isDigit(c byte) bool {
 		return true
 	}
 	return false
+}
+
+// getu4 decodes \uXXXX from the beginning of s, returning the hex value,
+// or it returns -1.
+func getu4(s []byte) rune {
+	if len(s) < 6 || s[0] != '\\' || s[1] != 'u' {
+		return -1
+	}
+	r, err := strconv.ParseUint(string(s[2:6]), 16, 64)
+	if err != nil {
+		return -1
+	}
+	return rune(r)
+}
+
+// unquote converts a quoted JSON string literal s into an actual string t.
+// The rules are different than for Go, so cannot use strconv.Unquote.
+func unquote(s []byte) (t string, ok bool) {
+	s, ok = unquoteBytes(s)
+	t = string(s)
+	return
+}
+
+func unquoteBytes(s []byte) (t []byte, ok bool) {
+	if len(s) < 2 || s[0] != '"' || s[len(s)-1] != '"' {
+		return
+	}
+	s = s[1 : len(s)-1]
+
+	// Check for unusual characters. If there are none,
+	// then no unquoting is needed, so return a slice of the
+	// original bytes.
+	r := 0
+	for r < len(s) {
+		c := s[r]
+		if c == '\\' || c == '"' || c < ' ' {
+			break
+		}
+		if c < utf8.RuneSelf {
+			r++
+			continue
+		}
+		rr, size := utf8.DecodeRune(s[r:])
+		if rr == utf8.RuneError && size == 1 {
+			break
+		}
+		r += size
+	}
+	if r == len(s) {
+		return s, true
+	}
+
+	b := make([]byte, len(s)+2*utf8.UTFMax)
+	w := copy(b, s[0:r])
+	for r < len(s) {
+		// Out of room?  Can only happen if s is full of
+		// malformed UTF-8 and we're replacing each
+		// byte with RuneError.
+		if w >= len(b)-2*utf8.UTFMax {
+			nb := make([]byte, (len(b)+utf8.UTFMax)*2)
+			copy(nb, b[0:w])
+			b = nb
+		}
+		switch c := s[r]; {
+		case c == '\\':
+			r++
+			if r >= len(s) {
+				return
+			}
+			switch s[r] {
+			default:
+				return
+			case '"', '\\', '/', '\'':
+				b[w] = s[r]
+				r++
+				w++
+			case 'b':
+				b[w] = '\b'
+				r++
+				w++
+			case 'f':
+				b[w] = '\f'
+				r++
+				w++
+			case 'n':
+				b[w] = '\n'
+				r++
+				w++
+			case 'r':
+				b[w] = '\r'
+				r++
+				w++
+			case 't':
+				b[w] = '\t'
+				r++
+				w++
+			case 'u':
+				r--
+				rr := getu4(s[r:])
+				if rr < 0 {
+					return
+				}
+				r += 6
+				if utf16.IsSurrogate(rr) {
+					rr1 := getu4(s[r:])
+					if dec := utf16.DecodeRune(rr, rr1); dec != unicode.ReplacementChar {
+						// A valid pair; consume.
+						r += 6
+						w += utf8.EncodeRune(b[w:], dec)
+						break
+					}
+					// Invalid surrogate; fall back to replacement rune.
+					rr = unicode.ReplacementChar
+				}
+				w += utf8.EncodeRune(b[w:], rr)
+			}
+
+		// Quote, control characters are invalid.
+		case c == '"', c < ' ':
+			return
+
+		// ASCII
+		case c < utf8.RuneSelf:
+			b[w] = c
+			r++
+			w++
+
+		// Coerce to well-formed UTF-8.
+		default:
+			rr, size := utf8.DecodeRune(s[r:])
+			r += size
+			w += utf8.EncodeRune(b[w:], rr)
+		}
+	}
+	return b[0:w], true
 }

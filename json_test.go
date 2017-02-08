@@ -474,6 +474,7 @@ func TestJSON_ParseString(t *testing.T) {
 		wantErr bool
 	}{
 		{"1", fields{[]byte(`"test"`)}, "test", false},
+		{"2", fields{[]byte(`"test\ttest"`)}, "test\ttest", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

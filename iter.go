@@ -34,7 +34,8 @@ Loop:
 			iter.offset++
 		case '"':
 			end := iter.validStringEnd()
-			iter.key = string(iter.data[iter.offset+1 : end-1])
+			s, _ := unquote(iter.data[iter.offset:end])
+			iter.key = string(s)
 			iter.offset = end
 		case ':':
 			iter.offset++

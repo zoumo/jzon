@@ -92,7 +92,7 @@ import "testing"
 
 var (
 	array  = `[1,2,3,4,5]`
-	object = `{"k1": "v1", "k2": true}`
+	object = `{"k1": "v1", "k2\tk2": true}`
 )
 
 func TestObjectIter_Next(t *testing.T) {
@@ -104,7 +104,7 @@ func TestObjectIter_Next(t *testing.T) {
 		fields fields
 		want   string
 	}{
-		{"1", fields{FromString(object)}, "k2"},
+		{"1", fields{FromString(object)}, "k2\tk2"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
