@@ -142,7 +142,6 @@ Loop:
 			iter.index++
 			iter.head = iter.offset
 			iter.tail = end
-			// iter.value = iter.JSON
 			iter.offset = end
 
 			break Loop
@@ -199,9 +198,7 @@ func (json *JSON) objectIter(valify bool) (*ObjectIter, error) {
 	}
 
 	return &ObjectIter{
-		JSON: &JSON{
-			data: json.data[json.head:json.tail],
-		},
+		JSON: FromBytes(json.data[json.head:json.tail]),
 	}, nil
 }
 
@@ -236,9 +233,7 @@ func (json *JSON) arrayIter(valify bool) (*ArrayIter, error) {
 		}
 	}
 	return &ArrayIter{
-		JSON: &JSON{
-			data: json.data[json.head+1 : json.tail-1],
-		},
+		JSON:  FromBytes(json.data[json.head+1 : json.tail-1]),
 		index: -1,
 	}, nil
 }

@@ -19,7 +19,7 @@ func (e SyntaxError) Error() string {
 		end = len(e.data)
 	}
 
-	return fmt.Sprintf("JSON syntax error when parsing kind(%s), context near: |%s|", e.kind, string(e.data[start:end]))
+	return fmt.Sprintf("JSON syntax error when parsing kind(%s), index %d, context near: |%s|", e.kind, e.offset, string(e.data[start:end]))
 }
 
 // A KindError occurs when a JSON method is invoked on
