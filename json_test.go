@@ -36,6 +36,60 @@ var (
 }`
 )
 
+func TestJSON_nextToken(t *testing.T) {
+	tests := []struct {
+		name       string
+		data       []byte
+		want1      byte
+		want2      bool
+		wantOffset int
+	}{
+		{"1", []byte(``), 0, false, 0},
+		{"1", []byte(`1`), '1', true, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			j := FromBytes(tt.data)
+			got, ok := j.nextToken()
+			if got != tt.want1 || ok != tt.want2 {
+				t.Errorf("JSON.nextToken() = %v %v, want %v %v", got, ok, tt.want1, tt.want2)
+			}
+
+			if j.offset != tt.wantOffset {
+				t.Errorf("JSON.nextToken() JSON.offset %v, want offset %v", j.offset, tt.wantOffset)
+
+			}
+		})
+	}
+}
+
+func TestJSON_readNextToken(t *testing.T) {
+	tests := []struct {
+		name       string
+		data       []byte
+		want1      byte
+		want2      bool
+		wantOffset int
+	}{
+		{"1", []byte(``), 0, false, 0},
+		{"1", []byte(`1234`), '1', true, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			j := FromBytes(tt.data)
+			got, ok := j.readNextToken()
+			if got != tt.want1 || ok != tt.want2 {
+				t.Errorf("JSON.nextToken() = %v %v, want %v %v", got, ok, tt.want1, tt.want2)
+			}
+
+			if j.offset != tt.wantOffset {
+				t.Errorf("JSON.nextToken() JSON.offset %v, want offset %v", j.offset, tt.wantOffset)
+
+			}
+		})
+	}
+}
+
 func TestJSON_validStringEnd(t *testing.T) {
 	type fields struct {
 		data []byte
@@ -48,12 +102,11 @@ func TestJSON_validStringEnd(t *testing.T) {
 		{"1", fields{[]byte(`"test"`)}, 6},
 		{"2", fields{[]byte(`"te\"st"`)}, 8},
 		{"3", fields{[]byte(`"te\\st"`)}, 8},
+		{"4", fields{[]byte(``)}, -1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			j := &JSON{
-				data: tt.fields.data,
-			}
+			j := FromBytes(tt.fields.data)
 			if got := j.validStringEnd(); got != tt.want {
 				t.Errorf("JSON.validStringEnd() = %v, want %v", got, tt.want)
 			}
@@ -74,12 +127,14 @@ func TestJSON_validLiteralValueEnd(t *testing.T) {
 		{"2", fields{[]byte("false")}, 5},
 		{"3", fields{[]byte("null")}, 4},
 		{"4", fields{[]byte("nulll")}, -1},
+		{"5", fields{[]byte("")}, -1},
+		{"6", fields{[]byte("true ")}, 4},
+		{"7", fields{[]byte("false,")}, 5},
+		{"8", fields{[]byte("null\t")}, 4},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			j := &JSON{
-				data: tt.fields.data,
-			}
+			j := FromBytes(tt.fields.data)
 			if got := j.validLiteralValueEnd(); got != tt.want {
 				t.Errorf("JSON.validLiteralValueEnd() = %v, want %v", got, tt.want)
 			}
@@ -120,12 +175,12 @@ func TestJSON_validNumberEnd(t *testing.T) {
 		{"19", fields{[]byte("1e1e1")}, -1},
 		{"20", fields{[]byte("-0.123e+01")}, 10},
 		{"21", fields{[]byte("-123e+0.1")}, -1},
+		{"22", fields{[]byte("")}, -1},
+		{"23", fields{[]byte("-0.123e+01,")}, 10},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			j := &JSON{
-				data: tt.fields.data,
-			}
+			j := FromBytes(tt.fields.data)
 			if got := j.validNumberEnd(); got != tt.want {
 				t.Errorf("Parser.numberEnd() = %v, want %v", got, tt.want)
 			}
@@ -155,14 +210,14 @@ func TestJSON_unsafeNumberEnd(t *testing.T) {
 		{"8", fields{[]byte("1e0")}, 3},
 		{"9", fields{[]byte("1.1e0")}, 5},
 		{"10", fields{[]byte("-0.123e+01")}, 10},
+		{"11", fields{[]byte("")}, -1},
+		{"12", fields{[]byte("-0.123e+01,")}, 10},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			j := &JSON{
-				data: tt.fields.data,
-			}
+			j := FromBytes(tt.fields.data)
 			if got := j.unsafeNumberEnd(); got != tt.want {
-				t.Errorf("Parser.numberEnd() = %v, want %v", got, tt.want)
+				t.Errorf("Parser.unsafeNumberEnd() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -181,12 +236,11 @@ func TestJSON_unsafeArrayEnd(t *testing.T) {
 		{"2", fields{[]byte(`[1, 2]`)}, 6},
 		{"3", fields{[]byte(`[{}, []]`)}, 8},
 		{"4", fields{[]byte(`[[1,2], [3,4]]`)}, 14},
+		{"5", fields{[]byte(``)}, -1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			j := &JSON{
-				data: tt.fields.data,
-			}
+			j := FromBytes(tt.fields.data)
 			if got := j.unsafeArrayEnd(); got != tt.want {
 				t.Errorf("JSON.unsafeArrayEnd() = %v, want %v", got, tt.want)
 			}
@@ -207,12 +261,11 @@ func TestJSON_validArrayEnd(t *testing.T) {
 		{"2", fields{[]byte(`[1, 2]`)}, 6},
 		{"3", fields{[]byte(`[{}, []]`)}, 8},
 		{"4", fields{[]byte(`[[1,2], [3,4]]`)}, 14},
+		{"4", fields{[]byte(``)}, -1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			j := &JSON{
-				data: tt.fields.data,
-			}
+			j := FromBytes(tt.fields.data)
 			if got := j.validArrayEnd(); got != tt.want {
 				t.Errorf("JSON.validArrayEnd() = %v, want %v, err: %v", got, tt.want, j.err)
 			}
@@ -233,12 +286,11 @@ func TestJSON_unsafeObjectEnd(t *testing.T) {
 		{"2", fields{[]byte(`{"1":{}}`)}, 8},
 		{"3", fields{[]byte(`{"1":[]}`)}, 8},
 		{"4", fields{[]byte(jsonStr)}, len(jsonStr)},
+		{"5", fields{[]byte(``)}, -1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			j := &JSON{
-				data: tt.fields.data,
-			}
+			j := FromBytes(tt.fields.data)
 			if got := j.unsafeObjectEnd(); got != tt.want {
 				t.Errorf("JSON.unsafeObjectEnd() = %v, want %v", got, tt.want)
 			}
@@ -259,12 +311,11 @@ func TestJSON_validObjectEnd(t *testing.T) {
 		{"2", fields{[]byte(`{"1":{}}`)}, 8},
 		{"3", fields{[]byte(`{"1":[]}`)}, 8},
 		{"4", fields{[]byte(jsonStr)}, len(jsonStr)},
+		{"5", fields{[]byte(``)}, -1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			j := &JSON{
-				data: tt.fields.data,
-			}
+			j := FromBytes(tt.fields.data)
 			if got := j.validObjectEnd(); got != tt.want {
 				t.Errorf("JSON.objectEnd() = %v, want %v", got, tt.want)
 			}
@@ -360,9 +411,8 @@ func TestJSON_Path(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			json := &JSON{
-				data: tt.fields.data,
-			}
+
+			json := FromBytes(tt.fields.data)
 			if err := json.Path(tt.args.keys...); (err != nil) != tt.wantErr {
 				t.Errorf("JSON.Path() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -386,9 +436,7 @@ func TestJSON_ParseInt64(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			json := &JSON{
-				data: tt.fields.data,
-			}
+			json := FromBytes(tt.fields.data)
 			got, err := json.ParseInt64()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("JSON.ParseInt64() error = %v, wantErr %v", err, tt.wantErr)
@@ -417,9 +465,7 @@ func TestJSON_ParseFloat(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			json := &JSON{
-				data: tt.fields.data,
-			}
+			json := FromBytes(tt.fields.data)
 			got, err := json.ParseFloat()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("JSON.ParseFloat() error = %v, wantErr %v", err, tt.wantErr)
@@ -448,9 +494,7 @@ func TestJSON_ParseBoolean(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			json := &JSON{
-				data: tt.fields.data,
-			}
+			json := FromBytes(tt.fields.data)
 			got, err := json.ParseBoolean()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("JSON.ParseBoolean() error = %v, wantErr %v", err, tt.wantErr)
@@ -478,9 +522,7 @@ func TestJSON_ParseString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			json := &JSON{
-				data: tt.fields.data,
-			}
+			json := FromBytes(tt.fields.data)
 			got, err := json.ParseString()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("JSON.ParseString() error = %v, wantErr %v", err, tt.wantErr)
