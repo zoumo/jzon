@@ -74,11 +74,13 @@ var (
 
 // JSON is the basic struct representation
 type JSON struct {
-	data   []byte
-	offset int
-	head   int
-	tail   int
-	err    error
+	data      []byte
+	offset    int
+	head      int
+	tail      int
+	limitHead int
+	limitTail int
+	err       error
 }
 
 // FromString returns an JSON from string
@@ -89,10 +91,12 @@ func FromString(data string) *JSON {
 // FromBytes returns a JSON from byte slice
 func FromBytes(data []byte) *JSON {
 	json := &JSON{
-		data:   data,
-		offset: 0,
-		head:   0,
-		tail:   len(data),
+		data:      data,
+		offset:    0,
+		head:      0,
+		tail:      len(data),
+		limitHead: 0,
+		limitTail: len(data),
 	}
 	return json
 }
@@ -104,10 +108,12 @@ func FromReader(r io.Reader) (*JSON, error) {
 		return nil, err
 	}
 	json := &JSON{
-		data:   buf,
-		offset: 0,
-		head:   0,
-		tail:   len(buf),
+		data:      buf,
+		offset:    0,
+		head:      0,
+		tail:      len(buf),
+		limitHead: 0,
+		limitTail: len(buf),
 	}
 	return json, nil
 }
@@ -117,9 +123,26 @@ func (json *JSON) Reset() *JSON {
 	json.offset = 0
 	json.head = 0
 	json.tail = len(json.data)
+	json.limitHead = len(json.data)
+	json.limitTail = len(json.data)
 	json.err = nil
 	json.nextToken()
 	return json
+}
+
+func (json *JSON) limit(head, tail int) {
+	json.limitHead = head
+
+	if tail > len(json.data) {
+		tail = len(json.data)
+	}
+	json.limitTail = tail
+	json.offset = json.limitHead
+}
+
+func (json *JSON) unlimit() {
+	json.limitHead = 0
+	json.limitTail = len(json.data)
 }
 
 func (json *JSON) CheckValid() error {
@@ -133,7 +156,12 @@ func (json *JSON) CheckValid() error {
 // nextToken returns the byte read at index i, move offset to i
 // if a valid byte is found
 func (json *JSON) nextToken() (byte, bool) {
-	if json.offset >= len(json.data) {
+
+	if json.limitTail == 0 {
+		json.limitTail = len(json.data)
+	}
+
+	if json.offset >= json.limitTail {
 		return 0, false
 	}
 	for i, c := range json.data[json.offset:] {
@@ -144,7 +172,7 @@ func (json *JSON) nextToken() (byte, bool) {
 		json.offset += i
 		return json.data[json.offset], true
 	}
-	json.offset = len(json.data)
+	json.offset = json.limitTail
 	return 0, false
 }
 
@@ -225,11 +253,17 @@ func (json *JSON) validValueEnd() (int, Kind) {
 
 func (json *JSON) validStringEnd() int {
 
-	validEnd := func(data []byte) int {
+	if json.limitTail == 0 {
+		json.limitTail = len(json.data)
+	}
+
+	n := json.limitTail
+
+	validEnd := func() int {
+		data := json.data
 		// https://tools.ietf.org/html/rfc7159#section-7
-		n := len(data)
 		// escaped := false
-		for i := 0; i < n; {
+		for i := json.offset; i < n; {
 			switch c := data[i]; {
 			case c == '\\':
 				// look one more byte
@@ -267,17 +301,23 @@ func (json *JSON) validStringEnd() int {
 		// can not find string end
 		return -n - 1
 	}
-	end := validEnd(json.data[json.offset+1:])
+	json.offset++
+	end := validEnd()
 	if end < 0 {
 		json.err = SyntaxError{String, json.offset + 1 - (end + 1), json.data}
 		return -1
 	}
-	return json.offset + 1 + end
+	json.offset--
+	return end
 }
 
 func (json *JSON) validLiteralValueEnd() int {
 	// https://github.com/golang/go/commit/69cd91a5981c49eaaa59b33196bdb5586c18d289
-	n := len(json.data)
+	if json.limitTail == 0 {
+		json.limitTail = len(json.data)
+	}
+
+	n := json.limitTail
 
 	validTokenEnd := func(index int) bool {
 		if index == n {
@@ -291,6 +331,12 @@ func (json *JSON) validLiteralValueEnd() int {
 	}
 
 	var kind Kind
+
+	if json.offset >= n {
+		json.err = SyntaxError{Invalid, json.offset, json.data}
+		return -1
+	}
+
 	switch json.data[json.offset] {
 	case 't':
 		end := json.offset + 4
@@ -326,28 +372,41 @@ func (json *JSON) validLiteralValueEnd() int {
 }
 
 func (json *JSON) validNumberEnd() int {
-	validEnd := func(data []byte) (int, flag) {
-		n := len(data)
+	if json.limitTail == 0 {
+		json.limitTail = len(json.data)
+	}
+
+	n := json.limitTail
+
+	lookOneMore := func(j int) (index int, digit bool, ok bool) {
+		next := j + 1
+		if next >= n {
+			return j, false, false
+		}
+
+		return next, isDigit(json.data[next]), true
+	}
+
+	validEnd := func() (int, flag) {
 		var flag flag
-		if n == 0 {
+		data := json.data
+		i := json.offset
+
+		if i >= n {
 			return -1, flag
 		}
 
-		lookOneMore := func(j int) (index int, digit bool, ok bool) {
-			next := j + 1
-			if next >= n {
-				return j, false, false
-			}
-
-			return next, isDigit(data[next]), true
-		}
-
-		i := 0
 		// first of all
 		if data[i] == '-' {
 			flag = add(flag, flagIsNegative)
 			i++
 		}
+
+		if i >= n {
+			// -
+			return -1, flag
+		}
+
 		switch data[i] {
 		case '0':
 			// if first digit is 0, we should make sure that next byte should not be digit
@@ -429,14 +488,15 @@ func (json *JSON) validNumberEnd() int {
 		// meet string end
 		return i, flag
 	}
-	end, _ := validEnd(json.data[json.offset:])
+
+	end, _ := validEnd()
 
 	if end < 0 {
-		json.err = SyntaxError{Number, json.offset - end, json.data}
+		json.err = SyntaxError{Number, -end, json.data}
 		return -1
 	}
 
-	return json.offset + end
+	return end
 }
 
 func (json *JSON) validArrayEnd() int {
@@ -576,14 +636,18 @@ func (json *JSON) validObjectEnd() int {
 // unsafeBlockEnd finds end of the data structure, array or object.
 // it is unsafe bucause it only check the nested symbol pair
 func (json *JSON) unsafeBlockEnd(left, right byte) int {
-	level := 0
 	now := json.offset
 	defer func() {
 		json.offset = now
 	}()
 
-	n := len(json.data)
+	if json.limitTail == 0 {
+		json.limitTail = len(json.data)
+	}
 
+	n := json.limitTail
+
+	level := 0
 	for ; json.offset < n; json.offset++ {
 		switch json.data[json.offset] {
 		case left:
@@ -622,7 +686,15 @@ func (json *JSON) unsafeObjectEnd() int {
 }
 
 func (json *JSON) unsafeNumberEnd() int {
-	n := len(json.data)
+	if json.limitTail == 0 {
+		json.limitTail = len(json.data)
+	}
+
+	n := json.limitTail
+
+	if json.offset == n {
+		return -1
+	}
 
 	i := json.offset
 
