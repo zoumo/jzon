@@ -45,7 +45,7 @@ func TestJSON_nextToken(t *testing.T) {
 		wantOffset int
 	}{
 		{"1", []byte(``), 0, false, 0},
-		{"1", []byte(`1`), '1', true, 0},
+		{"2", []byte(`1`), '1', true, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestJSON_readNextToken(t *testing.T) {
 		wantOffset int
 	}{
 		{"1", []byte(``), 0, false, 0},
-		{"1", []byte(`1234`), '1', true, 1},
+		{"2", []byte(`1234`), '1', true, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

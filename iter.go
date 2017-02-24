@@ -27,7 +27,7 @@ Loop:
 	for {
 		c, ok := iter.nextToken()
 		if !ok {
-			break Loop
+			return false
 		}
 		switch c {
 		case '{':
